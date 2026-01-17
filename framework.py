@@ -16,32 +16,44 @@ class AviFramework:
     def login(self):
         """Authenticates and sets the Bearer Token."""
         url = f"{self.base_url}/login"
-        response = requests.post(url, auth=(self.username, self.password))
-        if response.status_code == 200:
-            self.token = response.json().get("token")
-            self.headers = {"Authorization": f"Bearer {self.token}"}
-            return True
+        try:
+            response = requests.post(url, auth=(self.username, self.password), timeout=10)
+            if response.status_code == 200:
+                self.token = response.json().get("token")
+                self.headers = {"Authorization": f"Bearer {self.token}"}
+                return True
+        except Exception as e:
+            print(f"Login Error: {e}")
         return False
 
     def stage_1_pre_fetcher(self):
         print("\n--- STAGE 1: PRE-FETCHER ---")
-        # Fetching data to log counts
         for resource in ["tenant", "virtualservice", "serviceengine"]:
             res = requests.get(f"{self.base_url}/api/{resource}", headers=self.headers)
             if res.status_code == 200:
-                print(f"Total {resource}s found: {len(res.json())}")
-        mock_ssh() # Required mock call
+                data = res.json()
+                # Handle if data is a list or a dict
+                count = len(data) if isinstance(data, list) else len(data.get('results', []))
+                print(f"Total {resource}s found: {count}")
+        mock_ssh()
 
     def stage_2_pre_validation(self):
         print("\n--- STAGE 2: PRE-VALIDATION ---")
         res = requests.get(f"{self.base_url}/api/virtualservice", headers=self.headers)
         if res.status_code == 200:
             vss = res.json()
+            
+            # FIX: If API returns a dictionary, get the list from 'results'
+            if isinstance(vss, dict):
+                vss = vss.get('results', [])
+            
             for vs in vss:
-                if vs['name'] == self.target_name:
-                    self.target_uuid = vs['uuid']
-                    print(f"Target VS '{self.target_name}' found. Enabled status: {vs['enabled']}")
-                    return vs['enabled'] == True
+                # Extra check to ensure 'vs' is a dictionary
+                if isinstance(vs, dict) and vs.get('name') == self.target_name:
+                    self.target_uuid = vs.get('uuid')
+                    print(f"Target VS '{self.target_name}' found. Enabled: {vs.get('enabled')}")
+                    return vs.get('enabled') == True
+        print(f"Target VS '{self.target_name}' not found or already disabled.")
         return False
 
     def stage_3_task_trigger(self):
@@ -51,17 +63,19 @@ class AviFramework:
         payload = {"enabled": False}
         res = requests.put(url, headers=self.headers, json=payload)
         if res.status_code == 200:
-            print(f"Successfully sent PUT request to disable {self.target_name}")
+            print(f"Successfully disabled {self.target_name}")
 
     def stage_4_post_validation(self):
         print("\n--- STAGE 4: POST-VALIDATION ---")
-        mock_rdp() # Required mock call
+        mock_rdp()
         url = f"{self.base_url}/api/virtualservice/{self.target_uuid}"
         res = requests.get(url, headers=self.headers)
-        if res.status_code == 200 and res.json().get('enabled') == False:
-            print("Verification Success: Virtual Service is now DISABLED.")
-        else:
-            print("Verification Failed: Virtual Service is still enabled.")
+        if res.status_code == 200:
+            status = res.json().get('enabled')
+            if status is False:
+                print("Verification Success: Virtual Service is now DISABLED.")
+            else:
+                print(f"Verification Failed: Status is {status}")
 
     def execute_workflow(self, thread_id):
         print(f"\n>>> Starting Test Workflow for {thread_id}")
@@ -69,9 +83,6 @@ class AviFramework:
             self.stage_1_pre_fetcher()
             if self.stage_2_pre_validation():
                 self.stage_3_task_trigger()
-                time.sleep(1) # Wait for API to update
+                time.sleep(1) 
                 self.stage_4_post_validation()
-            else:
-                print("Skipping Trigger: VS is already disabled or not found.")
-        else:
-            print("Login failed. Check credentials in config.yaml")
+        print(f"\n<<< Finished Test Workflow for {thread_id}")
