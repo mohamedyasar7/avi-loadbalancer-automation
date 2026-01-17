@@ -1,0 +1,10 @@
+# API Configuration Settings
+api:
+  base_url: "https://semantic-brandea-banao-dc049ed0.koyeb.app"
+  username: "mohamed7"  # Put the username you registered here
+  password: "Yasartask&01"  # Put the password you registered here
+
+# Test Case Details
+test_settings:
+  target_vs_name: "backend-vs-t1r_1000-1"
+  parallel_instances: 2
